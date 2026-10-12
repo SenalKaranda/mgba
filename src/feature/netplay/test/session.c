@@ -9,6 +9,7 @@
 #include <mgba/core/interface.h>
 #include <mgba/core/log.h>
 #include <mgba/feature/netplay.h>
+#include <mgba-util/image.h>
 #include <mgba-util/vfs.h>
 
 #include "linktest-rom.h"
@@ -204,6 +205,29 @@ M_TEST_DEFINE(inputsReachTheLink) {
 	mNetplaySessionDestroy(second);
 }
 
+M_TEST_DEFINE(renderingDoesNotChangeState) {
+	/* In the GUI only the local player's core renders, and which one
+	 * that is differs per site; drawing must not touch emulated state. */
+	enum { FRAMES = 300, PLAYERS = 3, MAX = FRAMES / 30 * PLAYERS };
+	uint32_t headless[MAX], drawn[MAX];
+	size_t n;
+	_hashRun(PLAYERS, 31, FRAMES, headless, &n);
+
+	struct mNetplaySessionSettings settings = { .players = PLAYERS, .rtcEpochMs = RTC_EPOCH_MS };
+	struct mNetplaySession* session = mNetplaySessionCreate(&settings);
+	assert_non_null(session);
+	assert_true(mNetplaySessionLoadROM(session, linktestRom, sizeof(linktestRom)));
+	static mColor buffer[240 * 160];
+	struct mCore* core = mNetplaySessionGetCore(session, 1);
+	core->setVideoBuffer(core, buffer, 240);
+	_warnings = 0;
+	assert_true(mNetplaySessionStart(session));
+	struct Run run = { .frames = FRAMES, .hashEvery = 30, .seed = 31, .hashes = drawn };
+	_runFrames(session, &run);
+	assert_memory_equal(headless, drawn, sizeof(headless));
+	mNetplaySessionDestroy(session);
+}
+
 M_TEST_DEFINE(snapshotRoundTrip) {
 	enum { BEFORE = 240, AFTER = 300, PLAYERS = 3, MAX = AFTER / 30 * PLAYERS };
 	struct mNetplaySession* session = _startSession(PLAYERS);
@@ -299,6 +323,7 @@ M_TEST_SUITE_DEFINE_SETUP(NetplaySession,
 	cmocka_unit_test(linkFourPlayers),
 	cmocka_unit_test(repeatRunsMatch),
 	cmocka_unit_test(inputsReachTheLink),
+	cmocka_unit_test(renderingDoesNotChangeState),
 	cmocka_unit_test(snapshotRoundTrip),
 	cmocka_unit_test(snapshotAnyFrame),
 	cmocka_unit_test(snapshotRejectsMismatch))
