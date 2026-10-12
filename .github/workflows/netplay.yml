@@ -1,0 +1,101 @@
+name: Netplay
+
+# Builds the netplay session on Linux (GCC) and Windows (MSYS2 MinGW-w64),
+# runs the tests, and checks that both produce the same session hashes:
+# netplay only works if every player's machine computes identical state.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CMAKE_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_QT=OFF -DBUILD_SDL=OFF
+    -DBUILD_SUITE=ON -DBUILD_PERF=ON
+    -DBUILD_STATIC=ON -DBUILD_SHARED=OFF
+    -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DENABLE_SCRIPTING=OFF
+    -DUSE_LIBZIP=OFF -DUSE_MINIZIP=OFF -DUSE_EDITLINE=OFF -DUSE_SQLITE3=OFF
+    -DUSE_ELF=OFF -DUSE_LZMA=OFF -DUSE_FREETYPE=OFF -DUSE_EPOXY=OFF
+  RUNNER_ARGS: >-
+    --players 4 --frames 7200 --random-keys 1 --hash-every 300
+    --check-snapshots 900
+    src/feature/netplay/test/rom/linktest.gba
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libcmocka-dev libpng-dev zlib1g-dev valgrind
+      - name: Configure
+        run: cmake -S . -B build -G Ninja $CMAKE_FLAGS
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+      - name: Test under Valgrind
+        run: valgrind --error-exitcode=99 -q build/test/test-feature-netplay-session
+      - name: Session hashes
+        run: build/mgba-netplay-runner $RUNNER_ARGS > hashes-linux.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hashes-linux
+          path: hashes-linux.txt
+
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmocka
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-zlib
+      - name: Configure
+        run: cmake -S . -B build -G Ninja $CMAKE_FLAGS
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+      - name: Session hashes
+        run: |
+          set -o pipefail
+          build/mgba-netplay-runner.exe $RUNNER_ARGS | tr -d '\r' > hashes-windows.txt
+      - name: Package the runner
+        run: |
+          mkdir -p dist
+          cp build/mgba-netplay-runner.exe src/feature/netplay/test/rom/linktest.gba dist/
+          ldd build/mgba-netplay-runner.exe | awk '/mingw64/ { print $3 }' | xargs -r -I{} cp {} dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hashes-windows
+          path: hashes-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mgba-netplay-runner-windows
+          path: dist/
+
+  compare:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+      - name: Linux and Windows must agree
+        run: diff -u hashes-linux.txt hashes-windows.txt
