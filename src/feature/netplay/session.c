@@ -206,19 +206,33 @@ struct mNetplaySession* mNetplaySessionCreate(const struct mNetplaySessionSettin
 	return session;
 }
 
+static void _silentLog(struct mLogger* logger, int category, enum mLogLevel level, const char* format, va_list args) {
+	UNUSED(logger);
+	UNUSED(category);
+	UNUSED(level);
+	UNUSED(format);
+	UNUSED(args);
+}
+
 void mNetplaySessionDestroy(struct mNetplaySession* session) {
 	if (!session) {
 		return;
 	}
 	unsigned slot;
 	session->tearingDown = true;
-	/* Unlink every core before tearing any down: detaching wakes peers. */
+	/* Unlink every core before tearing any down: detaching wakes peers.
+	 * The lockstep coordinator warns when its last player leaves, which
+	 * is exactly what teardown means here, so keep that out of the log. */
+	struct mLogger silent = { .log = _silentLog };
+	struct mLogger* logger = mLogGetThreadLogger();
+	mLogSetThreadLogger(&silent);
 	for (slot = 0; slot < session->settings.players; ++slot) {
 		struct mCore* core = session->players[slot].core;
 		if (core && session->started) {
 			core->setPeripheral(core, mPERIPH_GBA_LINK_PORT, NULL);
 		}
 	}
+	mLogSetThreadLogger(logger);
 	for (slot = 0; slot < session->settings.players; ++slot) {
 		struct mCore* core = session->players[slot].core;
 		if (core) {
