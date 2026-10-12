@@ -87,7 +87,14 @@ static bool _hadTz;
 
 static void _setTz(const char* value) {
 #ifdef _WIN32
-	_putenv_s("TZ", value ? value : "");
+	/* _putenv copies its argument; "TZ=" removes the variable. */
+	size_t length = strlen("TZ=") + (value ? strlen(value) : 0) + 1;
+	char* assignment = malloc(length);
+	if (assignment) {
+		snprintf(assignment, length, "TZ=%s", value ? value : "");
+		_putenv(assignment);
+		free(assignment);
+	}
 	_tzset();
 #else
 	if (value) {
