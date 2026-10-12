@@ -945,6 +945,7 @@ if(ENABLE_EXTRA)
 		list(APPEND SRC ${GB_EXTRA_SRC})
 	endif()
 	list(APPEND SRC ${EXTRA_SRC})
+	list(APPEND TEST_SRC ${EXTRA_TEST_SRC})
 endif()
 
 if(ENABLE_SCRIPTING)
