@@ -396,11 +396,14 @@ uint32_t mNetplaySessionHashCore(struct mNetplaySession* session, unsigned slot)
 	uint32_t hash = hash32(state, size, 0);
 	free(state);
 
-	/* Emulation state the savestate leaves out (see mNetplaySnapshotPlayer). */
+	/* Emulation state the savestate leaves out (see mNetplaySnapshotPlayer).
+	 * Spelled out byte by byte: storing through a wider pointer into a
+	 * byte array is an aliasing violation, and with LTO the stores were
+	 * dropped, hashing whatever the stack held instead. */
 	struct GBA* gba = core->board;
-	uint8_t extra[4];
-	STORE_16LE(gba->memory.io[GBA_REG(SIOMLT_SEND)], 0, extra);
-	STORE_16LE(gba->keysActive, 2, extra);
+	uint16_t send = gba->memory.io[GBA_REG(SIOMLT_SEND)];
+	uint16_t keys = gba->keysActive;
+	const uint8_t extra[4] = { send & 0xFF, send >> 8, keys & 0xFF, keys >> 8 };
 	hash = hash32(extra, sizeof(extra), hash);
 
 	void* save = NULL;
