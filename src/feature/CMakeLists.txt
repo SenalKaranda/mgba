@@ -1,7 +1,11 @@
 include(ExportDirectory)
 set(SOURCE_FILES
 	commandline.c
+	netplay/input.c
+	netplay/peer.c
+	netplay/protocol.c
 	netplay/session.c
+	netplay/transport-sim.c
 	proxy-backend.c
 	thread-proxy.c
 	video-backend.c
@@ -13,6 +17,7 @@ if(ENABLE_VFS)
 endif()
 
 set(TEST_FILES
+	netplay/test/peer.c
 	netplay/test/session.c)
 
 set(GUI_FILES
