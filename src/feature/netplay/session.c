@@ -494,11 +494,11 @@ static bool _loadCoreState(struct mCore* core, const void* data, size_t size) {
 	return ok;
 }
 
-static bool _write(struct VFile* vf, const void* data, size_t size) {
+static bool _writeAll(struct VFile* vf, const void* data, size_t size) {
 	return vf->write(vf, data, size) == (ssize_t) size;
 }
 
-static bool _read(struct VFile* vf, void* data, size_t size) {
+static bool _readAll(struct VFile* vf, void* data, size_t size) {
 	return vf->read(vf, data, size) == (ssize_t) size;
 }
 
@@ -512,7 +512,7 @@ bool mNetplaySessionSaveSnapshot(struct mNetplaySession* session, struct VFile* 
 	STORE_32LE(session->settings.players, 0, &header.players);
 	STORE_32LE(session->frame, 0, &header.frame);
 	STORE_64LE(session->settings.rtcEpochMs, 0, &header.rtcEpochMs);
-	if (!_write(vf, &header, sizeof(header))) {
+	if (!_writeAll(vf, &header, sizeof(header))) {
 		return false;
 	}
 
@@ -537,7 +537,7 @@ bool mNetplaySessionSaveSnapshot(struct mNetplaySession* session, struct VFile* 
 		STORE_64LE(gba->memory.hw.rtc.offset, 0, &info.rtcOffset);
 		STORE_64LE(gba->memory.hw.rtc.lastLatch, 0, &info.rtcLastLatch);
 		void* data = state->map(state, stateSize, MAP_READ);
-		bool ok = data && _write(vf, &info, sizeof(info)) && _write(vf, data, stateSize);
+		bool ok = data && _writeAll(vf, &info, sizeof(info)) && _writeAll(vf, data, stateSize);
 		if (data) {
 			state->unmap(state, data, stateSize);
 		}
@@ -554,7 +554,7 @@ bool mNetplaySessionLoadSnapshot(struct mNetplaySession* session, struct VFile* 
 		return false;
 	}
 	struct mNetplaySnapshotHeader header;
-	if (!_read(vf, &header, sizeof(header))) {
+	if (!_readAll(vf, &header, sizeof(header))) {
 		return false;
 	}
 	uint32_t magic, version, players, frame;
@@ -576,7 +576,7 @@ bool mNetplaySessionLoadSnapshot(struct mNetplaySession* session, struct VFile* 
 		struct mCore* core = session->players[slot].core;
 		struct GBA* gba = core->board;
 		struct mNetplaySnapshotPlayer info;
-		if (!_read(vf, &info, sizeof(info))) {
+		if (!_readAll(vf, &info, sizeof(info))) {
 			return false;
 		}
 		uint32_t keysActive, stateSize;
@@ -589,7 +589,7 @@ bool mNetplaySessionLoadSnapshot(struct mNetplaySession* session, struct VFile* 
 		LOAD_64LE(rtcLastLatch, 0, &info.rtcLastLatch);
 
 		void* data = malloc(stateSize);
-		if (!data || !_read(vf, data, stateSize)) {
+		if (!data || !_readAll(vf, data, stateSize)) {
 			free(data);
 			return false;
 		}
