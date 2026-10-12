@@ -65,8 +65,11 @@ jobs:
             mingw-w64-x86_64-cmocka
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libepoxy
+      # mGBA refuses to configure on Windows without epoxy. It only adds the
+      # OpenGL renderers, which the headless netplay code never runs.
       - name: Configure
-        run: cmake -S . -B build -G Ninja $CMAKE_FLAGS
+        run: cmake -S . -B build -G Ninja $CMAKE_FLAGS -DUSE_EPOXY=ON
       - name: Build
         run: cmake --build build
       - name: Test
