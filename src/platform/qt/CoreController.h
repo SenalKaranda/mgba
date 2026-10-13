@@ -14,6 +14,7 @@
 
 #include "VFileDevice.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -242,6 +243,16 @@ signals:
 
 	void imagePrinted(const QImage&);
 
+public:
+	// A netplay game: the core belongs to the netplay session, which steps
+	// every player's console, so anything that would change this console
+	// on its own (states, rewind, pausing, cheats...) is refused. Set it
+	// before start().
+	void setNetplay(bool netplay) { m_netplay = netplay; }
+	bool isNetplay() const { return m_netplay; }
+	// The local player's keys, for the session to apply in step.
+	int netplayKeys() const { return m_netplayKeys; }
+
 private:
 	void updateKeys();
 	int updateAutofire();
@@ -292,6 +303,8 @@ private:
 
 	int m_activeKeys = 0;
 	int m_removedKeys = 0;
+	bool m_netplay = false;
+	std::atomic<int> m_netplayKeys{0};
 	bool m_autofire[32] = {};
 	int m_autofireStatus[32] = {};
 	int m_autofireThreshold = 1;

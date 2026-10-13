@@ -158,8 +158,13 @@ bool ShortcutController::eventFilter(QObject* obj, QEvent* event) {
 		}
 		auto item = m_heldKeys.find(key);
 		if (item != m_heldKeys.end()) {
-			Action::BooleanFunction fn = item.value()->action()->booleanAction();
-			fn(event->type() == QEvent::KeyPress);
+			bool press = event->type() == QEvent::KeyPress;
+			// A disabled action stays off while held, but a release always
+			// goes through so nothing is left stuck on
+			if (!press || item.value()->action()->isEnabled()) {
+				Action::BooleanFunction fn = item.value()->action()->booleanAction();
+				fn(press);
+			}
 			event->accept();
 		}
 	}

@@ -68,7 +68,10 @@ CoreController::CoreController(mCore* core, QObject* parent)
 		switch (context->core->platform(context->core)) {
 #ifdef M_CORE_GBA
 		case mPLATFORM_GBA:
-			context->core->setPeripheral(context->core, mPERIPH_GBA_LUMINANCE, controller->m_inputController->luminance());
+			// A solar sensor reads this PC's light level, which differs per player
+			if (!controller->m_netplay) {
+				context->core->setPeripheral(context->core, mPERIPH_GBA_LUMINANCE, controller->m_inputController->luminance());
+			}
 			break;
 #endif
 		default:
@@ -134,7 +137,10 @@ CoreController::CoreController(mCore* core, QObject* parent)
 
 		controller->clearMultiplayerController();
 #ifdef M_CORE_GBA
-		controller->detachDolphin();
+		// The netplay session's link stays attached until the session goes
+		if (!controller->m_netplay) {
+			controller->detachDolphin();
+		}
 #endif
 		QMetaObject::invokeMethod(controller, "stopping");
 	};
@@ -231,8 +237,10 @@ CoreController::~CoreController() {
 		m_cacheSet.reset();
 	}
 
-	mCoreConfigDeinit(&m_threadContext.core->config);
-	m_threadContext.core->deinit(m_threadContext.core);
+	if (!m_netplay) {
+		mCoreConfigDeinit(&m_threadContext.core->config);
+		m_threadContext.core->deinit(m_threadContext.core);
+	}
 }
 
 void CoreController::setPath(const QString& path, const QString& base) {
@@ -309,6 +317,18 @@ void CoreController::loadConfig(ConfigController* config) {
 	mCoreConfigCopyValue(&m_threadContext.core->config, config->config(), "volume");
 	mCoreConfigCopyValue(&m_threadContext.core->config, config->config(), "mute");
 	m_preload = config->getOption("preload", true).toInt();
+	if (m_netplay) {
+		// The netplay session paces every console itself and keeps its own
+		// emulation settings; the user's would make this one diverge
+		m_videoSync = false;
+		m_audioSync = false;
+		m_autosave = false;
+		m_autoload = false;
+		if (hasStarted()) {
+			updateFastForward();
+		}
+		return;
+	}
 
 	QSize sizeBefore = screenDimensions();
 	m_activeBuffer.resize(256 * 224 * sizeof(mColor));
@@ -337,6 +357,9 @@ void CoreController::loadConfig(ConfigController* config) {
 
 #ifdef ENABLE_DEBUGGERS
 void CoreController::attachDebugger(bool interrupt) {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 	if (!m_threadContext.core->debugger) {
 		mDebuggerAttach(&m_debugger, m_threadContext.core);
@@ -369,6 +392,9 @@ void CoreController::detachDebuggerModule(mDebuggerModule* module) {
 #endif
 
 void CoreController::setMultiplayerController(MultiplayerController* controller) {
+	if (m_netplay) {
+		return;
+	}
 	if (controller == m_multiplayer) {
 		return;
 	}
@@ -423,6 +449,9 @@ mCacheSet* CoreController::graphicCaches() {
 
 #ifdef M_CORE_GBA
 bool CoreController::attachDolphin(const Address& address) {
+	if (m_netplay) {
+		return false;
+	}
 	if (platform() != mPLATFORM_GBA) {
 		return false;
 	}
@@ -444,6 +473,9 @@ void CoreController::detachDolphin() {
 #endif
 
 void CoreController::setOverride(std::unique_ptr<Override> override) {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 	m_override = std::move(override);
 	m_override->identify(m_threadContext.core);
@@ -451,8 +483,12 @@ void CoreController::setOverride(std::unique_ptr<Override> override) {
 
 void CoreController::setInputController(InputController* inputController) {
 	m_inputController = inputController;
-	m_threadContext.core->setPeripheral(m_threadContext.core, mPERIPH_ROTATION, m_inputController->rotationSource());
 	m_threadContext.core->setPeripheral(m_threadContext.core, mPERIPH_RUMBLE, m_inputController->rumble());
+	if (m_netplay) {
+		// Tilt and camera input would differ per player
+		return;
+	}
+	m_threadContext.core->setPeripheral(m_threadContext.core, mPERIPH_ROTATION, m_inputController->rotationSource());
 	m_threadContext.core->setPeripheral(m_threadContext.core, mPERIPH_IMAGE_SOURCE, m_inputController->imageSource());
 }
 
@@ -507,11 +543,17 @@ void CoreController::stop() {
 }
 
 void CoreController::reset() {
+	if (m_netplay) {
+		return;
+	}
 	m_crashSeen = false;
 	mCoreThreadReset(&m_threadContext);
 }
 
 void CoreController::setPaused(bool paused) {
+	if (paused && m_netplay) {
+		return;
+	}
 	QMutexLocker locker(&m_actionMutex);
 	if (paused) {
 		if (m_moreFrames < 0) {
@@ -526,6 +568,9 @@ void CoreController::setPaused(bool paused) {
 }
 
 void CoreController::frameAdvance() {
+	if (m_netplay) {
+		return;
+	}
 	QMutexLocker locker(&m_actionMutex);
 	m_moreFrames = 1;
 	if (isPaused()) {
@@ -553,6 +598,9 @@ void CoreController::showResetInfo(bool enable) {
 }
 
 void CoreController::setRewinding(bool rewind) {
+	if (rewind && m_netplay) {
+		return;
+	}
 	if (!m_threadContext.core->opts.rewindEnable) {
 		if (rewind) {
 			emit statusPosted(tr("Rewinding not currently enabled"));
@@ -571,6 +619,9 @@ void CoreController::setRewinding(bool rewind) {
 }
 
 void CoreController::rewind(int states) {
+	if (m_netplay) {
+		return;
+	}
 	if (!m_threadContext.core->opts.rewindEnable) {
 		emit statusPosted(tr("Rewinding not currently enabled"));
 	}
@@ -585,6 +636,9 @@ void CoreController::rewind(int states) {
 }
 
 void CoreController::setFastForward(bool enable) {
+	if (enable && m_netplay) {
+		return;
+	}
 	if (m_fastForward == enable) {
 		return;
 	}
@@ -594,6 +648,9 @@ void CoreController::setFastForward(bool enable) {
 }
 
 void CoreController::forceFastForward(bool enable) {
+	if (enable && m_netplay) {
+		return;
+	}
 	if (m_fastForwardForced == enable) {
 		return;
 	}
@@ -603,6 +660,9 @@ void CoreController::forceFastForward(bool enable) {
 }
 
 void CoreController::changePlayer(int id) {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 	int playerId = 0;
 	mCoreConfigGetIntValue(&m_threadContext.core->config, "savePlayerId", &playerId);
@@ -655,6 +715,9 @@ void CoreController::overrideMute(bool override) {
 }
 
 void CoreController::loadState(int slot) {
+	if (m_netplay) {
+		return;
+	}
 	if (slot > 0 && slot != m_stateSlot) {
 		m_stateSlot = slot;
 		m_backupSaveState.clear();
@@ -675,6 +738,9 @@ void CoreController::loadState(int slot) {
 }
 
 void CoreController::loadState(const QString& path, int flags) {
+	if (m_netplay) {
+		return;
+	}
 	m_statePath = path;
 	int savedFlags = m_loadStateFlags;
 	if (flags != -1) {
@@ -702,6 +768,9 @@ void CoreController::loadState(const QString& path, int flags) {
 }
 
 void CoreController::loadState(QIODevice* iodev, int flags) {
+	if (m_netplay) {
+		return;
+	}
 	m_stateVf = VFileDevice::wrap(iodev, QIODevice::ReadOnly);
 	if (!m_stateVf) {
 		return;
@@ -793,6 +862,9 @@ void CoreController::saveState(QIODevice* iodev, int flags) {
 }
 
 void CoreController::loadBackupState() {
+	if (m_netplay) {
+		return;
+	}
 	if (!m_backupLoadState.isOpen()) {
 		return;
 	}
@@ -827,6 +899,9 @@ void CoreController::saveBackupState() {
 }
 
 void CoreController::loadSave(const QString& path, bool temporary) {
+	if (m_netplay) {
+		return;
+	}
 	m_resetActions.append([this, path, temporary]() {
 		VFile* vf = VFileDevice::open(path, temporary ? O_RDONLY : O_RDWR);
 		if (!vf) {
@@ -852,6 +927,9 @@ void CoreController::loadSave(const QString& path, bool temporary) {
 }
 
 void CoreController::loadSave(VFile* vf, bool temporary, const QString& path) {
+	if (m_netplay) {
+		return;
+	}
 	m_resetActions.append([this, vf, temporary, path]() {
 		bool ok;
 		if (temporary) {
@@ -871,6 +949,9 @@ void CoreController::loadSave(VFile* vf, bool temporary, const QString& path) {
 }
 
 void CoreController::loadPatch(const QString& patchPath) {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 	VFile* patch = VFileDevice::open(patchPath, O_RDONLY);
 	if (patch) {
@@ -886,6 +967,9 @@ void CoreController::loadPatch(const QString& patchPath) {
 }
 
 void CoreController::replaceGame(const QString& path) {
+	if (m_netplay) {
+		return;
+	}
 	QFileInfo info(path);
 	if (!info.isReadable()) {
 		LOG(QT, ERROR) << tr("Failed to open game file: %1").arg(path);
@@ -904,6 +988,9 @@ void CoreController::replaceGame(const QString& path) {
 }
 
 void CoreController::yankPak() {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 
 	switch (platform()) {
@@ -950,25 +1037,40 @@ void CoreController::screenshot() {
 #endif
 
 void CoreController::setRealTime() {
+	if (m_netplay) {
+		return;
+	}
 	m_threadContext.core->rtc.override = RTC_NO_OVERRIDE;
 }
 
 void CoreController::setFixedTime(const QDateTime& time) {
+	if (m_netplay) {
+		return;
+	}
 	m_threadContext.core->rtc.override = RTC_FIXED;
 	m_threadContext.core->rtc.value = time.toMSecsSinceEpoch();
 }
 
 void CoreController::setFakeEpoch(const QDateTime& time) {
+	if (m_netplay) {
+		return;
+	}
 	m_threadContext.core->rtc.override = RTC_FAKE_EPOCH;
 	m_threadContext.core->rtc.value = time.toMSecsSinceEpoch();
 }
 
 void CoreController::setTimeOffset(qint64 offset) {
+	if (m_netplay) {
+		return;
+	}
 	m_threadContext.core->rtc.override = RTC_WALLCLOCK_OFFSET;
 	m_threadContext.core->rtc.value = offset * 1000LL;
 }
 
 void CoreController::scanCard(const QString& path) {
+	if (m_netplay) {
+		return;
+	}
 #ifdef M_CORE_GBA
 	QImage image(path);
 	if (image.isNull()) {
@@ -1027,6 +1129,9 @@ void CoreController::scanCards(const QStringList& paths) {
 }
 
 void CoreController::importSharkport(const QString& path) {
+	if (m_netplay) {
+		return;
+	}
 #ifdef M_CORE_GBA
 	if (platform() != mPLATFORM_GBA) {
 		return;
@@ -1061,6 +1166,9 @@ void CoreController::exportSharkport(const QString& path) {
 
 #ifdef M_CORE_GB
 void CoreController::attachPrinter() {
+	if (m_netplay) {
+		return;
+	}
 	if (platform() != mPLATFORM_GB) {
 		return;
 	}
@@ -1113,6 +1221,9 @@ void CoreController::endPrint() {
 
 #ifdef M_CORE_GBA
 void CoreController::attachBattleChipGate() {
+	if (m_netplay) {
+		return;
+	}
 	if (platform() != mPLATFORM_GBA) {
 		return;
 	}
@@ -1174,6 +1285,9 @@ void CoreController::startVideoLog(const QString& path, bool compression) {
 }
 
 void CoreController::startVideoLog(VFile* vf, bool compression) {
+	if (m_netplay) {
+		return;
+	}
 	if (m_vl || !vf) {
 		return;
 	}
@@ -1200,6 +1314,9 @@ void CoreController::endVideoLog(bool closeVf) {
 }
 
 void CoreController::setFramebufferHandle(int fb) {
+	if (m_netplay) {
+		return;
+	}
 	Interrupter interrupter(this);
 	if (fb < 0) {
 		if (!m_hwaccel) {
@@ -1225,6 +1342,10 @@ void CoreController::setFramebufferHandle(int fb) {
 }
 
 void CoreController::updateKeys() {
+	if (m_netplay) {
+		m_netplayKeys = m_activeKeys | m_inputController->pollEvents() | updateAutofire();
+		return;
+	}
 	int polledKeys = m_inputController->pollEvents() | updateAutofire();
 	int activeKeys = m_activeKeys | polledKeys;
 	activeKeys |= m_threadContext.core->getKeys(m_threadContext.core) & ~m_removedKeys;

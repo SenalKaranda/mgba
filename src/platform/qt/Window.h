@@ -10,6 +10,7 @@
 #include <QElapsedTimer>
 #include <QList>
 #include <QMainWindow>
+#include <QMap>
 #include <QTimer>
 
 #include <functional>
@@ -41,6 +42,8 @@ class GDBController;
 class GIFView;
 class LibraryController;
 class LogView;
+class NetplayController;
+class NetplayView;
 class OverrideView;
 class SensorView;
 class ShaderSelector;
@@ -56,6 +59,11 @@ public:
 	virtual ~Window();
 
 	std::shared_ptr<CoreController> controller() { return m_controller; }
+#ifdef M_CORE_GBA
+	NetplayController* netplay();
+	// Shown in the title bar while a netplay game runs.
+	void setNetplayStatus(const QString& status);
+#endif
 
 	void setConfig(ConfigController*);
 	ConfigController* config() { return m_config; }
@@ -173,6 +181,11 @@ private:
 	static const int MUST_RESTART_TIMEOUT = 10000;
 
 	void setupMenu(QMenuBar*);
+	// While a netplay game runs, everything that would change this console
+	// apart from the others' is off; lifting the lock restores each action.
+	bool netplayActive() const;
+	void applyNetplayLock();
+	void liftNetplayLock();
 	void setupOptions();
 	void openStateWindow(LoadSave);
 
@@ -256,6 +269,12 @@ private:
 	QPointer<OverrideView> m_overrideView;
 	QPointer<SensorView> m_sensorView;
 	QPointer<DolphinConnector> m_dolphinView;
+#ifdef M_CORE_GBA
+	NetplayController* m_netplay = nullptr;
+	QPointer<NetplayView> m_netplayView;
+	QString m_netplayStatus;
+#endif
+	QMap<std::shared_ptr<Action>, bool> m_netplayLocked;
 	QPointer<FrameView> m_frameView;
 
 #ifdef USE_FFMPEG

@@ -199,6 +199,7 @@ set(UI_FILES
 	MemoryDump.ui
 	MemorySearch.ui
 	MemoryView.ui
+	NetplayView.ui
 	ObjView.ui
 	OverrideView.ui
 	PaletteView.ui
@@ -219,7 +220,9 @@ set(GBA_SRC
 	BattleChipUpdater.cpp
 	BattleChipView.cpp
 	DolphinConnector.cpp
-	GBAOverride.cpp)
+	GBAOverride.cpp
+	NetplayController.cpp
+	NetplayView.cpp)
 
 set(GB_SRC
 	GameBoy.cpp
@@ -457,7 +460,7 @@ set_target_properties(${BINARY_NAME}-qt PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${PR
 
 if(WIN32)
 	set_target_properties(${BINARY_NAME}-qt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-	target_link_libraries(${BINARY_NAME}-qt dwmapi)
+	target_link_libraries(${BINARY_NAME}-qt dwmapi winmm)
 	if(NOT MSVC)
 		target_link_libraries(${BINARY_NAME}-qt -municode)
 	endif()

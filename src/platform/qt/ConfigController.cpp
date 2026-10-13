@@ -21,6 +21,11 @@
 static const mOption s_frontendOptions[] = {
 	{ "ecard", true, '\0' },
 	{ "mb", true, '\0' },
+#ifdef M_CORE_GBA
+	{ "netplay-host", true, '\0' },
+	{ "netplay-players", true, '\0' },
+	{ "netplay-join", true, '\0' },
+#endif
 #ifdef ENABLE_SCRIPTING
 	{ "script", true, '\0' },
 #endif
@@ -164,6 +169,11 @@ ConfigController::ConfigController(QObject* parent)
 	      "  --ecard FILE   Scan an e-Reader card in the first loaded game\n"
 	      "                 Can be passed multiple times for multiple cards\n"
 	      "  --mb FILE      Boot a multiboot image with FILE inserted into the ROM slot"
+#ifdef M_CORE_GBA
+	    "\n  --netplay-host PORT        Host a netplay game of the ROM on PORT"
+	    "\n  --netplay-players N        Players in the hosted game, 2 to 4 (default 2)"
+	    "\n  --netplay-join HOST[:PORT] Join a netplay game of the ROM"
+#endif
 #ifdef ENABLE_SCRIPTING
 	    "\n  --script FILE  Run a script on start. Can be passed multiple times\n"
 #endif
@@ -186,6 +196,12 @@ ConfigController::ConfigController(QObject* parent)
 			self->m_argvOptions[optionName] = QString::fromUtf8(arg);
 			return true;
 		}
+#ifdef M_CORE_GBA
+		if (optionName.startsWith(QLatin1String("netplay-"))) {
+			self->m_argvOptions[optionName] = QString::fromUtf8(arg);
+			return true;
+		}
+#endif
 #ifdef ENABLE_SCRIPTING
 		if (optionName == QLatin1String("script")) {
 			QStringList scripts;

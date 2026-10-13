@@ -52,6 +52,10 @@
 #include "MemorySearch.h"
 #include "MemoryView.h"
 #include "MultiplayerController.h"
+#ifdef M_CORE_GBA
+#include "NetplayController.h"
+#include "NetplayView.h"
+#endif
 #include "OverrideView.h"
 #include "ObjView.h"
 #include "PaletteView.h"
@@ -252,6 +256,27 @@ void Window::argumentsPassed() {
 		m_initialSize = size * m_savedScale;
 	}
 
+#ifdef M_CORE_GBA
+	QVariant netplayHost = m_config->takeArgvOption(QString("netplay-host"));
+	QVariant netplayJoin = m_config->takeArgvOption(QString("netplay-join"));
+	QVariant netplayPlayers = m_config->takeArgvOption(QString("netplay-players"));
+	if (args->fname && (netplayHost.isValid() || netplayJoin.isValid())) {
+		QString rom = QString::fromUtf8(args->fname);
+		m_config->setQtOption("rom", rom, "netplay");
+		m_config->setQtOption("hosting", netplayHost.isValid(), "netplay");
+		if (netplayHost.isValid()) {
+			m_config->setQtOption("port", netplayHost.toUInt(), "netplay");
+		} else {
+			m_config->setQtOption("address", netplayJoin.toString(), "netplay");
+		}
+		openNamedTView<NetplayView>(&m_netplayView, true, this)();
+		if (netplayHost.isValid()) {
+			netplay()->host(rom, netplayHost.toUInt(), netplayPlayers.isValid() ? netplayPlayers.toUInt() : 2);
+		} else {
+			netplay()->join(rom, netplayJoin.toString());
+		}
+	} else
+#endif
 	if (args->fname) {
 		setController(m_manager->loadGame(args->fname));
 	}
@@ -461,6 +486,7 @@ void Window::multiplayerChanged() {
 	for (auto& action : m_nonMpActions) {
 		action->setEnabled(attached < 2);
 	}
+	applyNetplayLock();
 }
 
 void Window::selectPatch() {
@@ -603,6 +629,78 @@ void Window::startVideoLog() {
 		m_controller->startVideoLog(filename);
 	}
 }
+
+bool Window::netplayActive() const {
+	return m_controller && m_controller->isNetplay();
+}
+
+void Window::applyNetplayLock() {
+	if (!netplayActive()) {
+		return;
+	}
+	static const QStringList locked = [] {
+		QStringList ids{
+			"loadROM", "loadROMInArchive", "bootBIOS", "loadPatch", "replaceROM", "resetMru",
+			"loadAlternateSave", "loadTemporarySave", "importShark", "scanCard",
+			"loadState", "loadStateFile", "saveState", "saveStateFile", "quickLoad", "quickSave",
+			"undoLoadState", "undoSaveState", "multiWindow", "connectDolphin",
+			"reset", "yank", "pause", "frameAdvance",
+			"holdFastForward", "fastForward", "fastForwardUp", "fastForwardDown",
+			"holdRewind", "rewind", "frameRewind",
+			"increaseLuminanceLevel", "decreaseLuminanceLevel", "maxLuminanceLevel", "minLuminanceLevel",
+			"loadCamImage", "overrideWindow", "sensorWindow", "cheatsWindow", "holdGSButton",
+			"scripting", "debuggerWindow", "gdbWindow", "memoryView", "memorySearch", "ioViewer",
+			"memoryAccessView", "gbPrint", "bcGate", "recordVL", "stopVL",
+		};
+		for (int i = 0; i <= 10; ++i) {
+			ids.append(QString("quickLoad.%1").arg(i));
+			ids.append(QString("quickSave.%1").arg(i));
+			ids.append(QString("savePlayerId.%1").arg(i));
+			ids.append(QString("luminanceLevel.%1").arg(i));
+			ids.append(QString("mru.%1").arg(i));
+		}
+		return ids;
+	}();
+	for (const QString& id : locked) {
+		std::shared_ptr<Action> action = m_actions.getAction(id);
+		if (!action) {
+			continue;
+		}
+		if (!m_netplayLocked.contains(action)) {
+			m_netplayLocked[action] = action->isEnabled();
+		}
+		action->setEnabled(false);
+	}
+}
+
+void Window::liftNetplayLock() {
+	for (auto locked = m_netplayLocked.begin(); locked != m_netplayLocked.end(); ++locked) {
+		locked.key()->setEnabled(locked.value());
+	}
+	m_netplayLocked.clear();
+#ifdef M_CORE_GBA
+	m_netplayStatus.clear();
+#endif
+}
+
+#ifdef M_CORE_GBA
+NetplayController* Window::netplay() {
+	if (!m_netplay) {
+		m_netplay = new NetplayController(this, this);
+	}
+	return m_netplay;
+}
+
+void Window::setNetplayStatus(const QString& status) {
+	if (status == m_netplayStatus) {
+		return;
+	}
+	m_netplayStatus = status;
+	if (!m_fpsTimer.isActive()) {
+		updateTitle();
+	}
+}
+#endif
 
 template <typename T, typename... A>
 std::function<void()> Window::openTView(A... arg) {
@@ -862,6 +960,10 @@ void Window::dropEvent(QDropEvent* event) {
 		// No remote loading
 		return;
 	}
+	if (netplayActive()) {
+		// Loading another game would end the netplay game for everyone
+		return;
+	}
 	event->accept();
 	setController(m_manager->loadGame(url.toLocalFile()));
 }
@@ -974,6 +1076,7 @@ void Window::gameStarted() {
 	}
 	interrupter.resume();
 
+	applyNetplayLock();
 	m_actions.rebuildMenu(menuBar(), this, *m_shortcutController);
 
 #ifdef M_CORE_GBA
@@ -995,6 +1098,7 @@ void Window::gameStarted() {
 }
 
 void Window::gameStopped() {
+	liftNetplayLock();
 	for (auto& action : m_platformActions) {
 		action->setEnabled(true);
 	}
@@ -1281,6 +1385,12 @@ void Window::updateTitle(float fps) {
 				action->setEnabled(true);
 			}
 		}
+#ifdef M_CORE_GBA
+		if (netplayActive() && !m_netplayStatus.isEmpty()) {
+			title += QStringLiteral(" - ") + m_netplayStatus;
+		}
+#endif
+		applyNetplayLock();
 	}
 	if (title.isNull()) {
 		setWindowTitle(tr("%1 - %2").arg(projectName).arg(projectVersion));
@@ -1472,6 +1582,9 @@ void Window::setupMenu(QMenuBar* menubar) {
 
 	m_actions.addSeparator("file");
 	m_multiWindow = m_actions.addAction(tr("New multiplayer window"), "multiWindow", GBAApp::app(), &GBAApp::newWindow, "file");
+#ifdef M_CORE_GBA
+	m_actions.addAction(tr("Netplay..."), "netplay", openNamedTView<NetplayView>(&m_netplayView, true, this), "file");
+#endif
 
 #ifdef M_CORE_GBA
 	auto dolphin = m_actions.addAction(tr("Connect to Dolphin..."), "connectDolphin", openNamedTView<DolphinConnector>(&m_dolphinView, true, this), "file");
@@ -2203,6 +2316,12 @@ void Window::setController(CoreController* controller) {
 		return;
 	}
 	if (m_pendingClose) {
+		return;
+	}
+	if (netplayActive() && !controller->isNetplay()) {
+		// Replacing the netplay game would end it for everyone. Like the
+		// pending-close case, the unstarted controller cannot be deleted.
+		emit m_controller->statusPosted(tr("Leave the netplay game before loading another"));
 		return;
 	}
 
