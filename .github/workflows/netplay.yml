@@ -25,7 +25,15 @@ env:
     --check-snapshots 900
     src/feature/netplay/test/rom/linktest.gba
   GAME: src/feature/netplay/test/localhost-game.sh
+  QT_GAME: src/feature/netplay/test/qt-game.sh
   ROM: src/feature/netplay/test/rom/linktest.gba
+  QT_CMAKE_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_QT=ON -DBUILD_SDL=ON -DBUILD_PERF=ON -DBUILD_SUITE=OFF
+    -DBUILD_STATIC=ON -DBUILD_SHARED=OFF
+    -DUSE_FFMPEG=OFF -DUSE_DISCORD_RPC=OFF -DENABLE_SCRIPTING=OFF
+    -DUSE_LIBZIP=OFF -DUSE_MINIZIP=OFF -DUSE_EDITLINE=OFF
+    -DUSE_ELF=OFF -DUSE_LZMA=OFF -DUSE_FREETYPE=OFF
 
 jobs:
   linux:
@@ -113,6 +121,76 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mgba-netplay-runner-windows
+          path: dist/
+
+  # The playable app: mGBA's Qt frontend with File > Netplay. Built apart
+  # from the jobs above so a Qt problem never hides a determinism result.
+  linux-qt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libpng-dev zlib1g-dev libsdl2-dev libepoxy-dev libgl-dev qt6-base-dev libqt6opengl6-dev
+      - name: Configure
+        run: cmake -S . -B build -G Ninja $QT_CMAKE_FLAGS
+      - name: Build
+        run: cmake --build build
+      - name: Games between Qt and the runner
+        timeout-minutes: 5
+        run: sh $QT_GAME build/qt/mgba-qt build/mgba-netplay-runner $ROM 5750 15
+
+  windows-qt:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            diffutils
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libepoxy
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-qt6-base
+      - name: Configure
+        run: cmake -S . -B build -G Ninja $QT_CMAKE_FLAGS -DUSE_EPOXY=ON
+      - name: Build
+        run: cmake --build build
+      - name: Games between Qt and the runner
+        timeout-minutes: 5
+        run: sh $QT_GAME build/mGBA.exe build/mgba-netplay-runner.exe $ROM 5750 15
+      # Everything a friend needs in one folder: the app, the runner, Qt's
+      # platform and style plugins, and every MinGW DLL any of them loads.
+      - name: Package
+        run: |
+          set -e
+          mkdir -p dist/platforms dist/styles
+          cp build/mGBA.exe build/mgba-netplay-runner.exe $ROM src/feature/netplay/README.md dist/
+          cp /mingw64/share/qt6/plugins/platforms/qwindows.dll dist/platforms/
+          cp /mingw64/share/qt6/plugins/styles/*.dll dist/styles/ || true
+          for f in dist/*.exe dist/platforms/*.dll dist/styles/*.dll; do ldd "$f"; done \
+            | awk '/mingw64/ { print $3 }' | sort -u | xargs -r -I{} cp {} dist/
+          ls -la dist dist/platforms dist/styles
+      - name: The packaged app starts on its own DLLs
+        timeout-minutes: 2
+        run: |
+          # Outside MSYS2's PATH, as on a friend's PC.
+          PATH=/c/Windows/system32:/c/Windows dist/mgba-netplay-runner.exe --players 2 --frames 60 dist/linktest.gba
+          # Windows refuses to start an exe with a DLL missing.
+          PATH=/c/Windows/system32:/c/Windows dist/mGBA.exe --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mgba-netplay-windows
           path: dist/
 
   compare:

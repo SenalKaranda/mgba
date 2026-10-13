@@ -17,6 +17,56 @@ transfer. This only works if every PC computes exactly the same state from
 the same button presses, so determinism is what most of this code is
 about.
 
+## Playing with friends
+
+1. **Everyone gets the same download.** On GitHub, open Actions, the newest
+   green "Netplay" run, and download `mgba-netplay-windows` from its
+   artifacts. Unzip it anywhere and run `mGBA.exe`. Everyone must use that
+   very same download: the host turns away any other build.
+2. **Everyone has the same game.** Each player needs their own copy of the
+   exact same ROM (the same patched Quetzal, byte for byte) and keeps their
+   own save next to it as usual (`Quetzal.gba` and `Quetzal.sav`), or in
+   mGBA's save folder if they set one.
+3. **Connect the PCs.** See "Connecting the PCs" below (Tailscale is the
+   easy way).
+4. **The host** opens File → Netplay..., picks the ROM, chooses "Host a
+   game", sets the number of players (2 to 4) and presses Host. The dialog
+   lists the host's addresses; send friends the Tailscale one.
+5. **Everyone else** opens File → Netplay..., picks the ROM, types the
+   host's address under "Join a game" and presses Join.
+6. The game starts on every PC once everyone has joined. The title bar
+   shows your player number and the round trip to the others.
+
+While playing:
+
+- Your keyboard or controller works as set up in mGBA's settings.
+- Everything that would make your console differ from the others' is off:
+  save states, rewind, fast forward, pause, reset, cheats, loading another
+  game, and the debugging tools. Volume and video settings work as usual.
+- **Input delay:** button presses take effect a few frames late (about
+  17 ms each), the same for everyone, chosen from the slowest connection
+  when the game starts. Nearby friends get 2 to 5 frames.
+- **"Waiting for player N..."** means that player's keys are late (a poor
+  connection, or a PC that cannot keep up). After 20 seconds of silence the
+  game ends for everyone.
+- **If anyone leaves or drops, the game ends for everyone**: a linked GBA
+  cannot be unplugged mid-game. Progress since the last in-game save is lost
+  then, so **save in the game often**. Start a new session the same way.
+
+Saves:
+
+- Every PC emulates every player's GBA, so each player's save is sent to
+  everyone, but each PC writes back **only its own player's save**, to the
+  usual place, whenever the game saves and when the session ends.
+- The first time a session writes your save, it first copies the old one to
+  `NAME.sav.netplay-DATE-TIME.bak` beside it. Delete old backups whenever
+  you like. The save keeps working in plain mGBA.
+
+Every PC runs all the players' GBAs at once, so it needs several times the
+power of normal play; see "Checking Pokémon Quetzal on your PC" below for
+a quick speed test. If one PC cannot keep up, everyone else sees "Waiting
+for player N..." now and then; play with fewer players.
+
 ## What exists
 
 - `session.c`: a netplay session runs 2 to 4 GBA cores on one thread in
@@ -42,9 +92,16 @@ about.
   `lagproxy.py`, which puts a slow, lossy network between them.
 - `src/platform/test/netplay-main.c`: `mgba-netplay-runner`, which runs a
   game through a session with no GUI, alone or over the network.
+- `src/platform/qt/NetplayController.cpp`, `NetplayView.cpp`: the app's
+  File → Netplay... dialog. In the lobby the peer is polled from the GUI
+  thread; once the game starts, the local player's console runs in an
+  ordinary `CoreController` (in its netplay mode, which refuses anything
+  that would desync, such as loading a state) whose core thread drives the
+  whole session. `test/qt-game.sh` plays the app against the runner, both
+  ways round, on Qt's offscreen platform.
 
-Not yet built: the Qt lobby/UI (so no picture, sound or controller yet)
-and save write-back.
+Not built yet: rejoining a running game, rollback (hiding the input delay),
+IPv6.
 
 Two mGBA savestate gaps surfaced along the way and are handled here: the
 link's outgoing word (SIOMLT_SEND) is never saved in savestates, and the
@@ -53,9 +110,9 @@ lockstep driver's restored event queue was never terminated (fixed in
 
 ## Checking Pokémon Quetzal on your PC
 
-Download `mgba-netplay-runner-windows` from the latest run of the
-"Netplay" workflow (GitHub → Actions), unzip it, and run from a command
-prompt in that folder:
+In the `mgba-netplay-windows` download (see above) is also
+`mgba-netplay-runner.exe`, which runs the linked GBAs with no window. Run it
+from a command prompt in that folder:
 
 ```
 mgba-netplay-runner --players 4 --frames 36000 --random-keys 1 ^
@@ -81,11 +138,11 @@ that, write a key script (`--input FILE`, lines of
 `FRAME SLOT KEYS [DURATION]`, e.g. `1200 0 A 2`) and check the dumped
 frames (`--dump DIR --dump-every 600`).
 
-## Trying the network with friends (no GUI yet)
+## Connecting the PCs, and testing the connection
 
-The runner can already play over the internet, pressing random keys, which
-shows whether your connection keeps up and whether every PC computes the
-same game. Everyone needs the same `mgba-netplay-runner-windows` download.
+The runner (in the same download) can play over the internet without the
+app, pressing random keys, which shows whether your connection keeps up and
+whether every PC computes the same game.
 
 1. **Connect the PCs.** The host must be reachable by everyone. The easy
    way is [Tailscale](https://tailscale.com/download): everyone installs it
