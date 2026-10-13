@@ -79,6 +79,8 @@ struct Site {
 	struct mNetplayPeer* peer;
 	bool started;
 	uint64_t nextFrameUs;
+	/* Neither polls nor runs, like a PC that hiccups. */
+	bool frozen;
 };
 
 struct Game {
@@ -167,6 +169,10 @@ static void _play(struct Game* game) {
 		for (i = 0; i < game->players; ++i) {
 			struct Site* site = &game->sites[i];
 			if (!site->peer) {
+				continue;
+			}
+			if (site->frozen) {
+				allDone = false;
 				continue;
 			}
 			mNetplayPeerPoll(site->peer);
@@ -399,6 +405,51 @@ M_TEST_DEFINE(lostPlayerEndsGame) {
 	_teardown(&game);
 }
 
+struct EndRace {
+	uint64_t frozenAtMs;
+	enum mNetplayPeerState clientEnd;
+	uint32_t clientFrame;
+	enum mNetplayPeerState hostWhenClientEnded;
+};
+
+/* The host stalls one frame short of the end, so the client gets there
+ * first; like a frontend, the client lets go of the game once it is over. */
+static void _hostLagsAtEnd(struct Game* game, uint64_t ms) {
+	struct EndRace* race = game->hookData;
+	struct Site* host = &game->sites[0];
+	if (!race->frozenAtMs && mNetplayPeerSession(host->peer) && mNetplayPeerFrame(host->peer) + 1 >= game->endFrame) {
+		race->frozenAtMs = ms;
+	}
+	host->frozen = race->frozenAtMs && ms < race->frozenAtMs + 200;
+	struct Site* client = &game->sites[1];
+	if (client->peer && _settled(mNetplayPeerGetState(client->peer))) {
+		race->clientEnd = mNetplayPeerGetState(client->peer);
+		race->clientFrame = mNetplayPeerFrame(client->peer);
+		race->hostWhenClientEnded = mNetplayPeerGetState(host->peer);
+		mNetplayPeerDestroy(client->peer);
+		client->peer = NULL;
+	}
+}
+
+M_TEST_DEFINE(clientWaitsForHostAtEnd) {
+	struct Game game;
+	_setup(&game, 2, 300, NULL, 13);
+	struct EndRace race = {0};
+	game.hook = _hostLagsAtEnd;
+	game.hookData = &race;
+	_play(&game);
+	/* The loop may stop on the step the client finished in. */
+	_hostLagsAtEnd(&game, UINT64_MAX);
+	assert_true(race.frozenAtMs > 0);
+	assert_int_equal(race.clientEnd, mNETPLAY_PEER_ENDED);
+	assert_int_equal(race.clientFrame, 300);
+	/* Ending first would have hung up on a host that still needed us. */
+	assert_int_equal(race.hostWhenClientEnded, mNETPLAY_PEER_ENDED);
+	assert_int_equal(mNetplayPeerGetState(game.sites[0].peer), mNETPLAY_PEER_ENDED);
+	assert_int_equal(mNetplayPeerFrame(game.sites[0].peer), 300);
+	_teardown(&game);
+}
+
 M_TEST_SUITE_DEFINE_SETUP(NetplayPeer,
 	cmocka_unit_test(twoPlayersLan),
 	cmocka_unit_test(fourPlayersInternet),
@@ -406,4 +457,5 @@ M_TEST_SUITE_DEFINE_SETUP(NetplayPeer,
 	cmocka_unit_test(desyncIsRepaired),
 	cmocka_unit_test(rejectsDifferentRom),
 	cmocka_unit_test(rejectsDifferentBuild),
-	cmocka_unit_test(lostPlayerEndsGame))
+	cmocka_unit_test(lostPlayerEndsGame),
+	cmocka_unit_test(clientWaitsForHostAtEnd))

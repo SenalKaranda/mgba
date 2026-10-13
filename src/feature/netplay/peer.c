@@ -1064,6 +1064,11 @@ enum mNetplayPeerStep mNetplayPeerRunFrame(struct mNetplayPeer* peer, uint16_t l
 	}
 	uint32_t frame = mNetplaySessionFrame(peer->session);
 	if (peer->endFrame && frame >= peer->endFrame) {
+		/* A client can get here a few frames before the host, which may
+		 * still need its keys; it ends when the host says it is done. */
+		if (!peer->host && !peer->hostFinished) {
+			return mNETPLAY_PEER_STEP_STALLED;
+		}
 		_end(peer);
 		return mNETPLAY_PEER_STEP_ENDED;
 	}
@@ -1117,8 +1122,11 @@ enum mNetplayPeerStep mNetplayPeerRunFrame(struct mNetplayPeer* peer, uint16_t l
 					_sendFinished(peer, remote);
 				}
 			}
+			_end(peer);
+		} else if (peer->hostFinished) {
+			_end(peer);
 		}
-		_end(peer);
+		/* Otherwise the host is not there yet; see the top. */
 	}
 	return mNETPLAY_PEER_STEP_OK;
 }
@@ -1194,6 +1202,12 @@ void mNetplayPeerGetStats(const struct mNetplayPeer* peer, struct mNetplayPeerSt
 
 struct mNetplaySession* mNetplayPeerSession(struct mNetplayPeer* peer) {
 	return peer->session;
+}
+
+struct mNetplaySession* mNetplayPeerTakeSession(struct mNetplayPeer* peer) {
+	struct mNetplaySession* session = peer->session;
+	peer->session = NULL;
+	return session;
 }
 
 #endif

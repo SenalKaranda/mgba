@@ -157,6 +157,11 @@ int32_t mNetplayPeerFrameAdvantage(const struct mNetplayPeer*);
 void mNetplayPeerGetStats(const struct mNetplayPeer*, struct mNetplayPeerStats*);
 /* The running session (NULL before the game starts). */
 struct mNetplaySession* mNetplayPeerSession(struct mNetplayPeer*);
+/* Hands the session over to the caller, who destroys it later with
+ * mNetplaySessionDestroy(); mNetplayPeerDestroy() then leaves it alone. For
+ * frontends whose consoles must outlive the network side. Call it only on
+ * the way to mNetplayPeerDestroy(). */
+struct mNetplaySession* mNetplayPeerTakeSession(struct mNetplayPeer*);
 
 CXX_GUARD_END
 
