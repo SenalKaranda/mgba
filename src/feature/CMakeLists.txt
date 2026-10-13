@@ -6,6 +6,7 @@ set(SOURCE_FILES
 	netplay/protocol.c
 	netplay/session.c
 	netplay/transport-sim.c
+	netplay/transport-socket.c
 	proxy-backend.c
 	thread-proxy.c
 	video-backend.c
