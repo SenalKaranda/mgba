@@ -76,8 +76,8 @@ struct GBASIOLockstepSerializedState {
 };
 static_assert(offsetof(struct GBASIOLockstepSerializedState, driver) == 0x10, "GBA lockstep savestate driver offset wrong");
 static_assert(offsetof(struct GBASIOLockstepSerializedState, player) == 0x30, "GBA lockstep savestate player offset wrong");
-static_assert(offsetof(struct GBASIOLockstepSerializedState, coordinator) == 0x1C0, "GBA lockstep savestate coordinator offset wrong");
-static_assert(sizeof(struct GBASIOLockstepSerializedState) == 0x1F0, "GBA lockstep savestate struct sized wrong");
+static_assert(offsetof(struct GBASIOLockstepSerializedState, coordinator) == 0x310, "GBA lockstep savestate coordinator offset wrong");
+static_assert(sizeof(struct GBASIOLockstepSerializedState) == 0x340, "GBA lockstep savestate struct sized wrong");
 
 static bool GBASIOLockstepDriverInit(struct GBASIODriver* driver);
 static void GBASIOLockstepDriverDeinit(struct GBASIODriver* driver);

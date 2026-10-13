@@ -17,7 +17,10 @@ CXX_GUARD_START
 #include <mgba-util/table.h>
 #include <mgba-util/threading.h>
 
-#define MAX_LOCKSTEP_EVENTS 8
+/* A savestate stores the event count in 4 bits, so 15 is the maximum
+ * that still round-trips. 8 overflowed when one core ran a full catch-up
+ * before the others drained (Pokémon link sensing). */
+#define MAX_LOCKSTEP_EVENTS 15
 
 enum GBASIOLockstepEventType {
 	SIO_EV_ATTACH,
