@@ -406,6 +406,10 @@ M_TEST_DEFINE(lostPlayerEndsGame) {
 }
 
 struct EndRace {
+	/* Cut the client off while it waits at the end, as a host that closes
+	 * without its goodbye arriving would. */
+	bool sever;
+	bool severed;
 	uint64_t frozenAtMs;
 	enum mNetplayPeerState clientEnd;
 	uint32_t clientFrame;
@@ -422,6 +426,10 @@ static void _hostLagsAtEnd(struct Game* game, uint64_t ms) {
 	}
 	host->frozen = race->frozenAtMs && ms < race->frozenAtMs + 200;
 	struct Site* client = &game->sites[1];
+	if (race->sever && !race->severed && host->frozen && client->peer && mNetplayPeerFrame(client->peer) >= game->endFrame) {
+		mNetplaySimSever(game->clientLinks[1]);
+		race->severed = true;
+	}
 	if (client->peer && _settled(mNetplayPeerGetState(client->peer))) {
 		race->clientEnd = mNetplayPeerGetState(client->peer);
 		race->clientFrame = mNetplayPeerFrame(client->peer);
@@ -450,6 +458,24 @@ M_TEST_DEFINE(clientWaitsForHostAtEnd) {
 	_teardown(&game);
 }
 
+M_TEST_DEFINE(clientAtEndSurvivesLosingHost) {
+	struct Game game;
+	_setup(&game, 2, 300, NULL, 17);
+	struct EndRace race = { .sever = true };
+	game.hook = _hostLagsAtEnd;
+	game.hookData = &race;
+	_play(&game);
+	_hostLagsAtEnd(&game, UINT64_MAX);
+	assert_true(race.severed);
+	/* The client had played everything, so it finished... */
+	assert_int_equal(race.clientEnd, mNETPLAY_PEER_ENDED);
+	assert_int_equal(race.clientFrame, 300);
+	/* ...while the host, one frame short, lost a player. */
+	assert_int_equal(mNetplayPeerGetState(game.sites[0].peer), mNETPLAY_PEER_FAILED);
+	_warnings = 0;
+	_teardown(&game);
+}
+
 M_TEST_SUITE_DEFINE_SETUP(NetplayPeer,
 	cmocka_unit_test(twoPlayersLan),
 	cmocka_unit_test(fourPlayersInternet),
@@ -458,4 +484,5 @@ M_TEST_SUITE_DEFINE_SETUP(NetplayPeer,
 	cmocka_unit_test(rejectsDifferentRom),
 	cmocka_unit_test(rejectsDifferentBuild),
 	cmocka_unit_test(lostPlayerEndsGame),
-	cmocka_unit_test(clientWaitsForHostAtEnd))
+	cmocka_unit_test(clientWaitsForHostAtEnd),
+	cmocka_unit_test(clientAtEndSurvivesLosingHost))

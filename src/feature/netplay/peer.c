@@ -922,6 +922,11 @@ static void _clientPoll(struct mNetplayPeer* peer) {
 		return;
 	}
 	if (size < 0 || !host->link->isOpen(host->link)) {
+		if (peer->endFrame && peer->session && mNetplaySessionFrame(peer->session) >= peer->endFrame) {
+			/* Every frame is played; the host only left before saying so. */
+			_end(peer);
+			return;
+		}
 		_fail(peer, "Lost the connection to the host");
 		return;
 	}

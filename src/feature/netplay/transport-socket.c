@@ -411,6 +411,29 @@ static void _destroy(struct mNetplayLink* base) {
 			SocketPoll(1, NULL, writes, NULL, 10);
 		}
 	}
+	/* Then close gracefully. Closing a socket that still holds unread data
+	 * sends a reset, and a reset can make the other side throw away what it
+	 * has not read yet, the goodbye included (Windows does). So say we are
+	 * done sending, and read and discard until the other side closes too. */
+	if (!link->closed && !link->eof && !SOCKET_FAILED(link->tcp)) {
+#ifdef _WIN32
+		shutdown(link->tcp, SD_SEND);
+#else
+		shutdown(link->tcp, SHUT_WR);
+#endif
+		uint8_t discard[4096];
+		deadline = _monotonicMs() + CLOSE_FLUSH_MS;
+		while (_monotonicMs() < deadline) {
+			ssize_t got = SocketRecv(link->tcp, discard, sizeof(discard));
+			if (got == 0 || (got < 0 && !SocketWouldBlock())) {
+				break;
+			}
+			if (got < 0) {
+				Socket reads[] = { link->tcp, INVALID_SOCKET };
+				SocketPoll(1, reads, NULL, NULL, 10);
+			}
+		}
+	}
 	if (link->listener) {
 		size_t i;
 		for (i = 0; i < MAX_LINKS; ++i) {
