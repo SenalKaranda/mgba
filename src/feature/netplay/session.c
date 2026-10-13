@@ -350,27 +350,31 @@ enum mNetplayStepResult mNetplaySessionRunFrame(struct mNetplaySession* session,
 	struct mNetplayPlayer* primary = &session->players[0];
 	struct mCore* clock = primary->core;
 	uint32_t start = clock->frameCounter(clock);
+	unsigned secondaryFrames[mNETPLAY_MAX_PLAYERS] = {0};
 	while (_framesSince(clock, start) < 1) {
 		bool progressed = false;
-		/* The clock owner runs until it ends the frame or waits on the
-		 * others (a transfer start, a mode change, a hard sync). */
-		while (!primary->asleep && _framesSince(clock, start) < 1) {
+		/* One runLoop apiece, round-robin. Letting the clock owner run a
+		 * whole frame before the others drain events fills lockstep's
+		 * 8-slot queue (Pokémon polls SIO on the title screen; mashing
+		 * buttons overflows it and crashes). Threaded multiplayer does
+		 * not hit this because the cores actually run together. */
+		if (!primary->asleep && _framesSince(clock, start) < 1) {
 			primary->runLoop(clock);
 			progressed = true;
 		}
-		/* Each secondary catches up to the published cycle, answering any
-		 * events on the way, and then sleeps. */
 		for (slot = 1; slot < players; ++slot) {
 			struct mNetplayPlayer* player = &session->players[slot];
+			if (player->asleep) {
+				continue;
+			}
 			struct mCore* core = player->core;
 			uint32_t passStart = core->frameCounter(core);
-			while (!player->asleep) {
-				player->runLoop(core);
-				progressed = true;
-				if (_framesSince(core, passStart) > MAX_SECONDARY_FRAMES_PER_PASS) {
-					mLOG(NETPLAY, ERROR, "Slot %u never reached the link clock", slot);
-					return mNETPLAY_STEP_DEADLOCK;
-				}
+			player->runLoop(core);
+			progressed = true;
+			secondaryFrames[slot] += (unsigned) _framesSince(core, passStart);
+			if (secondaryFrames[slot] > MAX_SECONDARY_FRAMES_PER_PASS) {
+				mLOG(NETPLAY, ERROR, "Slot %u never reached the link clock", slot);
+				return mNETPLAY_STEP_DEADLOCK;
 			}
 		}
 		if (!progressed) {

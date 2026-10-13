@@ -336,6 +336,9 @@ static bool GBASIOLockstepDriverLoadState(struct GBASIODriver* driver, const voi
 	player->otherModes[2] = _modeIntToEnum(GBASIOLockstepSerializedFlagsGetPlayer2Mode(flags));
 	player->otherModes[3] = _modeIntToEnum(GBASIOLockstepSerializedFlagsGetPlayer3Mode(flags));
 
+	if (mTimingIsScheduled(&driver->p->p->timing, &lockstep->event)) {
+		mTimingDeschedule(&driver->p->p->timing, &lockstep->event);
+	}
 	if (GBASIOLockstepSerializedFlagsGetEventScheduled(flags)) {
 		int32_t when;
 		LOAD_32LE(when, 0, &state->driver.nextEvent);
@@ -1085,11 +1088,13 @@ void GBASIOLockstepCoordinatorAckPlayer(struct GBASIOLockstepCoordinator* coordi
 }
 
 void GBASIOLockstepPlayerSleep(struct GBASIOLockstepPlayer* player) {
-	if (player->asleep) {
-		return;
+	if (!player->asleep) {
+		player->asleep = true;
+		player->driver->user->sleep(player->driver->user);
 	}
-	player->asleep = true;
-	player->driver->user->sleep(player->driver->user);
+	/* Always yield: WaitOnPlayers can fire while this player is already
+	 * marked asleep, and skipping the interrupt lets runLoop keep going
+	 * and enqueue more events than the 8-slot queue can hold. */
 	player->driver->d.p->p->cpu->nextEvent = 0;
 	GBAInterrupt(player->driver->d.p->p);
 }
