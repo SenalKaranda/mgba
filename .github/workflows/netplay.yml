@@ -3,6 +3,8 @@ name: Netplay
 # Builds the netplay session on Linux (GCC) and Windows (MSYS2 MinGW-w64),
 # runs the tests, and checks that both produce the same session hashes:
 # netplay only works if every player's machine computes identical state.
+# Then it plays games between runner processes over real sockets, directly
+# and through a slow, lossy proxy, and checks every player saw the same game.
 
 on:
   push:
@@ -22,6 +24,8 @@ env:
     --players 4 --frames 7200 --random-keys 1 --hash-every 300
     --check-snapshots 900
     src/feature/netplay/test/rom/linktest.gba
+  GAME: src/feature/netplay/test/localhost-game.sh
+  ROM: src/feature/netplay/test/rom/linktest.gba
 
 jobs:
   linux:
@@ -39,9 +43,19 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --no-tests=error
       - name: Test under Valgrind
-        run: valgrind --error-exitcode=99 -q build/test/test-feature-netplay-session
+        run: |
+          valgrind --error-exitcode=99 -q build/test/test-feature-netplay-session
+          valgrind --error-exitcode=99 -q build/test/test-feature-netplay-peer
       - name: Session hashes
         run: build/mgba-netplay-runner $RUNNER_ARGS > hashes-linux.txt
+      - name: Games over localhost
+        timeout-minutes: 10
+        run: |
+          set -e
+          sh $GAME build/mgba-netplay-runner $ROM 2 1200 5740
+          sh $GAME build/mgba-netplay-runner $ROM 4 1200 5742
+          sh $GAME build/mgba-netplay-runner $ROM 4 1200 5744 --delay 25 --jitter 6 --loss 2
+          sh $GAME build/mgba-netplay-runner $ROM 4 1200 5746 --delay 75 --jitter 15 --loss 3
       - uses: actions/upload-artifact@v4
         with:
           name: hashes-linux
@@ -66,6 +80,7 @@ jobs:
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libepoxy
+            mingw-w64-x86_64-python
       # mGBA refuses to configure on Windows without epoxy. It only adds the
       # OpenGL renderers, which the headless netplay code never runs.
       - name: Configure
@@ -78,10 +93,17 @@ jobs:
         run: |
           set -o pipefail
           build/mgba-netplay-runner.exe $RUNNER_ARGS | tr -d '\r' > hashes-windows.txt
+      - name: Games over localhost
+        timeout-minutes: 10
+        run: |
+          set -e
+          sh $GAME build/mgba-netplay-runner.exe $ROM 2 1200 5740
+          sh $GAME build/mgba-netplay-runner.exe $ROM 4 1200 5742
+          sh $GAME build/mgba-netplay-runner.exe $ROM 4 1200 5744 --delay 25 --jitter 6 --loss 2
       - name: Package the runner
         run: |
           mkdir -p dist
-          cp build/mgba-netplay-runner.exe src/feature/netplay/test/rom/linktest.gba dist/
+          cp build/mgba-netplay-runner.exe src/feature/netplay/test/rom/linktest.gba src/feature/netplay/README.md dist/
           ldd build/mgba-netplay-runner.exe | awk '/mingw64/ { print $3 }' | xargs -r -I{} cp {} dist/
       - uses: actions/upload-artifact@v4
         with:
