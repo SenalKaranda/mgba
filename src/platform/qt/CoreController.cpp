@@ -457,7 +457,11 @@ void CoreController::setInputController(InputController* inputController) {
 }
 
 void CoreController::setLogger(LogController* logger) {
-	disconnect(m_log);
+	if (m_log) {
+		// With no logger yet, disconnect(nullptr) would cut every
+		// connection anyone made to this controller
+		disconnect(m_log);
+	}
 	m_log = logger;
 	m_logger.filter = logger->filter();
 	connect(this, &CoreController::logPosted, m_log, &LogController::postLog);
