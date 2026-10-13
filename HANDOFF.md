@@ -26,7 +26,9 @@ For the next agent picking this up. Read this, then `src/feature/netplay/README.
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_01ERGZMGbGzJwhY5duz4w9KH
   ```
-  No model names elsewhere in commits/code.
+  (Commits made from Cursor on the user's PC have no session URL, so only the first trailer;
+  author `Claude <noreply@anthropic.com>` via `--author`.) No model names elsewhere in
+  commits/code.
 - mGBA's CONTRIBUTING forbids AI-generated code, so this stays a private fork. MPL-2.0: modified
   files stay MPL; sharing the binary means offering the source.
 
@@ -47,32 +49,44 @@ For the next agent picking this up. Read this, then `src/feature/netplay/README.
 
 ## Current state
 
-- **Playable Windows build exists**: CI run #6 (`38337046643`) artifact **`mgba-netplay-windows`**
-  (39.7 MB: `mGBA.exe`, `mgba-netplay-runner.exe`, Qt plugins, DLLs, README). Tested in CI against
-  the runner both ways on Qt's offscreen platform. The repo is private, so friends can't download
-  artifacts; the user must share the zip. Artifacts expire after ~90 days; a GitHub Release would
-  give a stable link (offered, not done).
-- Run #6 is marked failed only because the old `windows` job's lag-proxy game ended with "Lost the
-  connection to the host" at the last frame. Diagnosis: the host closed its socket with unread data
-  → RST → the client lost the host's final BYE. **Fixed in `a0c1551`** (graceful close in
-  `transport-socket.c _destroy`: shutdown(SEND) then drain until EOF or 500 ms; a client that has
-  played every frame ends normally if the host vanishes; new sim test
-  `clientAtEndSurvivesLosingHost`). **Pushed, CI not yet checked: verify run #7+ is fully green**
-  (all five jobs) and that `mgba-netplay-windows` is produced again.
-- All 25 local tests pass (Linux shared + static builds); localhost games through `lagproxy.py`
-  (50 ms, 2% loss, 4 players) are clean.
+- **Playable Windows build**: the newest green "Netplay" run's artifact **`mgba-netplay-windows`**
+  (~40 MB: `mGBA.exe`, `mgba-netplay-runner.exe`, Qt 6.11.2 plugins, DLLs, README). Last checked:
+  run `38349913541` for `aca5739`, all five jobs green. The repo is private, so friends can't
+  download artifacts; the user must share the zip. Artifacts expire after ~90 days; a GitHub
+  Release would give a stable link (offered, not done).
+- `a0c1551` (graceful socket close) is confirmed: run `38338811488`, all five jobs green.
+- `2a0563a` and `aca5739` fix an **upstream** Qt bug (not netplay's): with Qt 6.11 on Windows the
+  main window opened at its 240x160 minimum (menus hidden, picture squashed) on every launch, and
+  a window closed maximized came back tiny. Qt's window log showed `showEvent()`'s resize and
+  maximize applied, then undone when the window became visible (around `reloadDisplayDriver()`
+  creating the GL display). Fix: size and maximize again from a `QTimer::singleShot(0)`. Upstream
+  `master` was still `143adf5` on 2026-10-12, so upstream has not fixed it. Full screen on start
+  is untested and may have the same problem.
+- All 25 local tests passed in the Linux container; localhost games through `lagproxy.py` (50 ms,
+  2% loss, 4 players) were clean.
 
 ## Verified vs. not verified
 
-Verified (Linux, test ROM): Qt client and Qt host each play full games against the runner with
-0 desyncs/stalls; picture renders (screenshot); game end handled; existing `.sav` untouched and
-backed up; volume/renderer changes do not change hashes; Windows Qt build packages and starts.
+Verified (Linux container, test ROM): Qt client and Qt host each play full games against the
+runner with 0 desyncs/stalls; existing `.sav` untouched and backed up; volume/renderer changes do
+not change hashes.
+
+Verified **on the user's Windows 11 PC** (build 26200, real display and GPU, the CI package,
+`linktest.gba`, localhost):
+- `mGBA.exe` joins a runner host (900 frames, 0 stalls, 0 desyncs) and hosts a runner (0 desyncs);
+  closing the host's window ends the game for the others; the dialog shows "The game is over".
+- `mGBA.exe` hosts a 4-player game with three runners: 0 desyncs, 0 resyncs. The later clients
+  see a one-off 150-300 ms stall (same totals over 20 s and 60 s, so at the start or end, not
+  during play); an all-runner 4-player game has none. Harmless, cause not pinned down.
+- The lobby lists the host's addresses with the Tailscale one labelled.
+- Windows Firewall asks the first time each exe hosts (once per folder); allowing works.
+- Window size: fresh, saved and maximized cases now match stock mGBA 0.10.5.
 
 **Not verified**, and the honest open risks:
-1. Anyone running the Windows GUI (I never saw it on Windows).
-2. Quetzal itself under the session (only `linktest.gba` so far), and 4×Quetzal speed.
-3. Real internet / real NAT / Windows Firewall (only localhost + a userspace lag proxy; the
-   container kernel has no netem).
+1. A person playing on the Windows GUI: keyboard/controller input, audio, feel.
+2. Quetzal itself under the session (only `linktest.gba` so far), and 4×Quetzal speed. There is
+   no `.gba` under the user's profile or on `S:\` except the test ROM; ask where it is.
+3. Real internet / real NAT (only localhost + a userspace lag proxy so far).
 4. The window's action lock against keyboard shortcuts: automated keypresses (xdotool, even under
    openbox) never reached mGBA's shortcuts here, so it is code-reviewed only. The real backstop is
    `CoreController` netplay mode refusing those operations.
@@ -84,15 +98,35 @@ backed up; volume/renderer changes do not change hashes; Windows Qt build packag
 
 ## Next steps (suggested order)
 
-1. Check CI for `a0c1551` (and the next commit); fix anything red.
-2. Tell the user, plainly: where the download is, how to share it, how to play (README "Playing
-   with friends"), and the list above.
+1. Check CI for the newest commit; fix anything red.
+2. Get the Quetzal ROM's location from the user and run the README's speed and determinism check
+   (`mgba-netplay-runner --players 4 ... quetzal.gba`) on this PC.
 3. Wait for the user's real-world results (two `mGBA.exe` on one PC via `127.0.0.1` with Quetzal →
    one friend over Tailscale → four). Expect follow-ups on: Quetzal speed, audio, link behaviour in
    Quetzal's co-op, saves.
 4. Optional: publish a Release; frame-advantage throttle; rejoining a running game; rollback.
 
-## Local environment notes (this container; a fresh one needs setup)
+## The user's Windows PC (where the latest work happened)
+
+- Repo at `S:\Projects\mgba`. The clone had HEAD on `master` with the branch's files copied over
+  it; it is now on the branch tracking `origin`, with `core.autocrlf=false` set locally so the
+  LF working tree matches the repo (the `.sh` scripts need LF).
+- No Qt or MSYS2 here (only Strawberry Perl's MinGW gcc, CMake, Ninja, Python, Tailscale), so
+  Qt changes are built by CI and the artifact is tested locally. `gh` is not logged in; with the
+  user's approval, `GH_TOKEN` was taken from git's credential store for the session.
+- Test scripts live outside the repo in `S:\Projects\netplay-test` (PowerShell): `helpers.ps1`
+  (launch, close, screenshot windows with `PrintWindow`), `gui-game.ps1 -Build DIR` (`qt-game.sh`
+  on the real display, with screenshots), `four-player.ps1 -Build DIR [-RunnerHost] [-NoSnap]`,
+  `size-test.ps1 -Build DIR`, `resize-test.ps1`. Each build folder (`app`, `app2`, `app3`, one per
+  CI run) has a `portable.ini`, so the stock mGBA settings in `%APPDATA%\mGBA` stay untouched.
+- Stock mGBA 0.10.5 is installed at `S:\Program Files\mGBA`; a portable copy for comparisons is
+  `S:\Projects\netplay-test\stock`.
+- Qt's own messages are rerouted into mGBA's log. To see them, put `logToStdout=1` and
+  `logLevel=127` under `[ports.qt]` in the build's `config.ini`, and set e.g.
+  `QT_LOGGING_RULES=qt.qpa.window=true` (native window geometry and state).
+- Running the packaged runner from outside the repo needs the user's approval each session.
+
+## Local environment notes (the earlier Linux container; a fresh one needs setup)
 
 - Build dirs: `/home/user/mgba-build` (shared, tests), `/home/user/mgba-build-static`,
   `/home/user/mgba-qt-build` (Qt, RelWithDebInfo), `/home/user/mgba-qt-static` (CI's Qt config).

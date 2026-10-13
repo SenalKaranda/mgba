@@ -31,7 +31,8 @@ about.
    easy way).
 4. **The host** opens File → Netplay..., picks the ROM, chooses "Host a
    game", sets the number of players (2 to 4) and presses Host. The dialog
-   lists the host's addresses; send friends the Tailscale one.
+   lists the host's addresses; send friends the Tailscale one. The first
+   time, Windows asks whether to let mGBA on the network: allow it.
 5. **Everyone else** opens File → Netplay..., picks the ROM, types the
    host's address under "Join a game" and presses Join.
 6. The game starts on every PC once everyone has joined. The title bar
