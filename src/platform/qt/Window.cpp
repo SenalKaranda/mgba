@@ -888,6 +888,15 @@ void Window::showEvent(QShowEvent* event) {
 	}
 	reloadDisplayDriver();
 	setFocus();
+	if (m_initialSize.isValid()) {
+		// Showing the window can still shrink it to its minimum size after
+		// this event (Qt 6.11 on Windows does), so size it again once shown
+		QTimer::singleShot(0, this, [this]() {
+			if (!isMaximized() && !isFullScreen()) {
+				resizeFrame(m_initialSize);
+			}
+		});
+	}
 }
 
 void Window::hideEvent(QHideEvent* event) {
