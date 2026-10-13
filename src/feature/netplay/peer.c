@@ -407,6 +407,11 @@ static bool _startSession(struct mNetplayPeer* peer, const void* const* saves, c
 			return false;
 		}
 	}
+	if (peer->config.prepareCore) {
+		for (slot = 0; slot < peer->players; ++slot) {
+			peer->config.prepareCore(peer->config.context, mNetplaySessionGetCore(peer->session, slot), slot, slot == peer->slot);
+		}
+	}
 	if (!mNetplaySessionStart(peer->session)) {
 		return false;
 	}
@@ -1124,6 +1129,10 @@ unsigned mNetplayPeerLocalSlot(const struct mNetplayPeer* peer) {
 
 unsigned mNetplayPeerPlayers(const struct mNetplayPeer* peer) {
 	return peer->players;
+}
+
+unsigned mNetplayPeerJoined(const struct mNetplayPeer* peer) {
+	return peer->state == mNETPLAY_PEER_CONNECTING ? 0 : peer->joined + 1;
 }
 
 unsigned mNetplayPeerInputDelay(const struct mNetplayPeer* peer) {

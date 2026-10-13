@@ -9,6 +9,8 @@
 #include <mgba/core/interface.h>
 #include <mgba/core/log.h>
 #include <mgba/feature/netplay.h>
+#include <mgba/internal/gba/audio.h>
+#include <mgba/internal/gba/gba.h>
 #include <mgba-util/image.h>
 #include <mgba-util/vfs.h>
 
@@ -228,6 +230,54 @@ M_TEST_DEFINE(renderingDoesNotChangeState) {
 	mNetplaySessionDestroy(session);
 }
 
+/* The test ROM is silent; start a square wave on every console the same
+ * way, so there are samples for the volume to scale. */
+static void _playTone(struct mNetplaySession* session) {
+	unsigned slot;
+	for (slot = 0; slot < mNetplaySessionPlayers(session); ++slot) {
+		struct mCore* core = mNetplaySessionGetCore(session, slot);
+		core->busWrite16(core, 0x04000084, 0x0080); /* SOUNDCNT_X: sound on */
+		core->busWrite16(core, 0x04000080, 0x1177); /* SOUNDCNT_L: tone 1, both sides */
+		core->busWrite16(core, 0x04000082, 0x0002); /* SOUNDCNT_H: PSG at 100% */
+		core->busWrite16(core, 0x04000062, 0xF080); /* SOUND1CNT_H: loud, 50% duty */
+		core->busWrite16(core, 0x04000064, 0x8600); /* SOUND1CNT_X: start */
+	}
+}
+
+M_TEST_DEFINE(outputSettingsDoNotChangeState) {
+	/* Each player sets their own volume and may mute channels; that
+	 * changes the mixed samples but must never look like a desync. */
+	enum { FRAMES = 300, PLAYERS = 3, MAX = FRAMES / 30 * PLAYERS };
+	uint32_t plain[MAX], adjusted[MAX];
+	struct mNetplaySession* reference = _startSession(PLAYERS);
+	_playTone(reference);
+	struct Run plainRun = { .frames = FRAMES, .hashEvery = 30, .seed = 41, .hashes = plain };
+	_runFrames(reference, &plainRun);
+	mNetplaySessionDestroy(reference);
+
+	struct mNetplaySession* session = _startSession(PLAYERS);
+	_playTone(session);
+	struct GBA* gba = mNetplaySessionGetCore(session, 0)->board;
+	/* Audible, so a frontend's local player hears the game. */
+	assert_int_equal(gba->audio.masterVolume, GBA_AUDIO_VOLUME_MAX);
+	struct Run run = { .frames = FRAMES / 2, .hashEvery = 30, .seed = 41, .hashes = adjusted };
+	_runFrames(session, &run);
+
+	struct mCore* core = mNetplaySessionGetCore(session, 0);
+	core->opts.volume = 0x40;
+	core->reloadConfigOption(core, NULL, NULL);
+	core = mNetplaySessionGetCore(session, 1);
+	core->opts.mute = true;
+	core->reloadConfigOption(core, NULL, NULL);
+	core = mNetplaySessionGetCore(session, 2);
+	core->enableAudioChannel(core, 0, false);
+
+	_runFrames(session, &run);
+	assert_int_equal(run.nHashes, MAX);
+	assert_memory_equal(plain, adjusted, sizeof(plain));
+	mNetplaySessionDestroy(session);
+}
+
 M_TEST_DEFINE(snapshotRoundTrip) {
 	enum { BEFORE = 240, AFTER = 300, PLAYERS = 3, MAX = AFTER / 30 * PLAYERS };
 	struct mNetplaySession* session = _startSession(PLAYERS);
@@ -324,6 +374,7 @@ M_TEST_SUITE_DEFINE_SETUP(NetplaySession,
 	cmocka_unit_test(repeatRunsMatch),
 	cmocka_unit_test(inputsReachTheLink),
 	cmocka_unit_test(renderingDoesNotChangeState),
+	cmocka_unit_test(outputSettingsDoNotChangeState),
 	cmocka_unit_test(snapshotRoundTrip),
 	cmocka_unit_test(snapshotAnyFrame),
 	cmocka_unit_test(snapshotRejectsMismatch))

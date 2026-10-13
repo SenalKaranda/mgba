@@ -43,6 +43,9 @@ struct mNetplayPlayer {
 	bool asleep;
 	bool saveLoaded;
 	struct mCore* core;
+	/* The core's own runLoop, kept here because a frontend may replace the
+	 * pointer on its core to drive the whole session from its thread. */
+	void (*runLoop)(struct mCore*);
 	struct GBASIOLockstepDriver driver;
 };
 
@@ -159,6 +162,7 @@ static bool _initCore(struct mNetplaySession* session, struct mNetplayPlayer* pl
 		return false;
 	}
 	player->core = core;
+	player->runLoop = core->runLoop;
 
 	/* A fresh configuration, never the user's: nothing on disk may change
 	 * how this core emulates. */
@@ -174,6 +178,10 @@ static bool _initCore(struct mNetplaySession* session, struct mNetplayPlayer* pl
 	mCoreConfigSetOverrideIntValue(config, "vbaBugCompat", 1);
 	mCoreConfigSetOverrideIntValue(config, "gba.forceGbp", 0);
 	mCoreConfigSetOverrideValue(config, "idleOptimization", "ignore");
+	/* Audible, though only a frontend listens; volume only scales output
+	 * samples, which the hash leaves out. */
+	mCoreConfigSetOverrideIntValue(config, "volume", 0x100);
+	mCoreConfigSetOverrideIntValue(config, "mute", 0);
 	mCoreLoadForeignConfig(core, config);
 
 	core->rtc.override = RTC_FAKE_EPOCH;
@@ -346,7 +354,7 @@ enum mNetplayStepResult mNetplaySessionRunFrame(struct mNetplaySession* session,
 		/* The clock owner runs until it ends the frame or waits on the
 		 * others (a transfer start, a mode change, a hard sync). */
 		while (!primary->asleep && _framesSince(clock, start) < 1) {
-			clock->runLoop(clock);
+			primary->runLoop(clock);
 			progressed = true;
 		}
 		/* Each secondary catches up to the published cycle, answering any
@@ -356,7 +364,7 @@ enum mNetplayStepResult mNetplaySessionRunFrame(struct mNetplaySession* session,
 			struct mCore* core = player->core;
 			uint32_t passStart = core->frameCounter(core);
 			while (!player->asleep) {
-				core->runLoop(core);
+				player->runLoop(core);
 				progressed = true;
 				if (_framesSince(core, passStart) > MAX_SECONDARY_FRAMES_PER_PASS) {
 					mLOG(NETPLAY, ERROR, "Slot %u never reached the link clock", slot);
@@ -400,6 +408,10 @@ uint32_t mNetplaySessionHashCore(struct mNetplaySession* session, unsigned slot)
 		return 0;
 	}
 	core->saveState(core, state);
+	/* The last mixed output samples follow the frontend's volume and
+	 * channel mutes, which are each player's own business. */
+	struct GBASerializedState* serialized = state;
+	memset(serialized->currentSamples, 0, sizeof(serialized->currentSamples));
 	uint32_t hash = hash32(state, size, 0);
 	free(state);
 

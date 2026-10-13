@@ -109,6 +109,12 @@ struct mNetplayPeerConfig {
 	uint32_t endFrame;
 	/* Overrides the build identity sent in the handshake (tests only). */
 	const char* buildId;
+	/* Called for every core once the session exists, just before it starts
+	 * (so before the cores' first reset). A frontend can give the local
+	 * core a video buffer here; it must not change anything that affects
+	 * emulation. Runs inside mNetplayPeerPoll(). */
+	void (*prepareCore)(void* context, struct mCore* core, unsigned slot, bool local);
+	void* context;
 };
 
 struct mNetplayPeerStats {
@@ -138,6 +144,8 @@ enum mNetplayPeerStep mNetplayPeerRunFrame(struct mNetplayPeer*, uint16_t localK
 
 unsigned mNetplayPeerLocalSlot(const struct mNetplayPeer*);
 unsigned mNetplayPeerPlayers(const struct mNetplayPeer*);
+/* Players in the lobby so far, the host included. */
+unsigned mNetplayPeerJoined(const struct mNetplayPeer*);
 unsigned mNetplayPeerInputDelay(const struct mNetplayPeer*);
 uint32_t mNetplayPeerFrame(const struct mNetplayPeer*);
 uint32_t mNetplayPeerLocalInputFrame(const struct mNetplayPeer*);

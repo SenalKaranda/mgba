@@ -92,7 +92,21 @@ struct Game {
 	/* Called once per virtual millisecond; may disturb the game. */
 	void (*hook)(struct Game*, uint64_t ms);
 	void* hookData;
+	unsigned prepared;
+	unsigned preparedLocal;
 };
+
+/* Like a GUI: every site draws its own player's screen, which must not
+ * change the game (the sites are compared with a headless session). */
+static void _prepareCore(void* context, struct mCore* core, unsigned slot, bool local) {
+	static mColor screens[mNETPLAY_MAX_PLAYERS][240 * 160];
+	struct Game* game = context;
+	++game->prepared;
+	if (local) {
+		++game->preparedLocal;
+		core->setVideoBuffer(core, screens[slot], 240);
+	}
+}
 
 static struct mNetplayPeerConfig _config(unsigned players, uint32_t endFrame) {
 	struct mNetplayPeerConfig config = {
@@ -115,6 +129,8 @@ static void _setup(struct Game* game, unsigned players, uint32_t endFrame, const
 	struct mNetplayClock* clock = _tickingClock(&game->clock, game->net);
 	struct mNetplayListener* listener = mNetplaySimListen(game->net);
 	struct mNetplayPeerConfig config = _config(players, endFrame);
+	config.prepareCore = _prepareCore;
+	config.context = game;
 	game->sites[0].peer = mNetplayPeerCreateHost(&config, listener, clock);
 	assert_non_null(game->sites[0].peer);
 	unsigned i;
@@ -229,6 +245,8 @@ static void _playMatch(unsigned players, uint32_t frames, unsigned latency, unsi
 	_setup(&game, players, frames, &params, 0xC0FFEE + players + latency);
 	_play(&game);
 	_assertAllMatch(&game);
+	assert_int_equal(game.prepared, players * players);
+	assert_int_equal(game.preparedLocal, players);
 	unsigned delay = mNetplayPeerInputDelay(game.sites[0].peer);
 	assert_true(delay >= minDelay && delay <= maxDelay);
 	struct mNetplayPeerStats stats;
