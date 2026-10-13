@@ -178,10 +178,11 @@ static bool _initCore(struct mNetplaySession* session, struct mNetplayPlayer* pl
 	mCoreConfigSetOverrideIntValue(config, "vbaBugCompat", 1);
 	mCoreConfigSetOverrideIntValue(config, "gba.forceGbp", 0);
 	mCoreConfigSetOverrideValue(config, "idleOptimization", "ignore");
-	/* Audible, though only a frontend listens; volume only scales output
-	 * samples, which the hash leaves out. */
-	mCoreConfigSetOverrideIntValue(config, "volume", 0x100);
-	mCoreConfigSetOverrideIntValue(config, "mute", 0);
+	/* Audible, though only a frontend listens. Not pinned: volume only
+	 * scales output samples, which the hash leaves out, so a frontend may
+	 * set its player's own. */
+	mCoreConfigSetIntValue(config, "volume", 0x100);
+	mCoreConfigSetIntValue(config, "mute", 0);
 	mCoreLoadForeignConfig(core, config);
 
 	core->rtc.override = RTC_FAKE_EPOCH;
