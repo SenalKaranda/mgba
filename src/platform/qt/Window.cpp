@@ -879,24 +879,26 @@ void Window::showEvent(QShowEvent* event) {
 		rect.moveCenter(geom.center());
 		move(rect.topLeft());
 	}
-	if (maximized) {
-		showMaximized();
-	}
 	if (m_fullscreenOnStart) {
 		enterFullScreen();
 		m_fullscreenOnStart = false;
 	}
 	reloadDisplayDriver();
 	setFocus();
-	if (m_initialSize.isValid()) {
-		// Showing the window can still shrink it to its minimum size after
-		// this event (Qt 6.11 on Windows does), so size it again once shown
-		QTimer::singleShot(0, this, [this]() {
-			if (!isMaximized() && !isFullScreen()) {
-				resizeFrame(m_initialSize);
-			}
-		});
-	}
+	// Showing the window can still shrink it to its minimum size after this
+	// event, even when maximized (Qt 6.11 on Windows does), so the size and
+	// maximizing only stick once it is shown
+	QTimer::singleShot(0, this, [this, maximized]() {
+		if (isFullScreen()) {
+			return;
+		}
+		if (m_initialSize.isValid()) {
+			resizeFrame(m_initialSize);
+		}
+		if (maximized) {
+			showMaximized();
+		}
+	});
 }
 
 void Window::hideEvent(QHideEvent* event) {
