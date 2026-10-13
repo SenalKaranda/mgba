@@ -1088,13 +1088,12 @@ void GBASIOLockstepCoordinatorAckPlayer(struct GBASIOLockstepCoordinator* coordi
 }
 
 void GBASIOLockstepPlayerSleep(struct GBASIOLockstepPlayer* player) {
-	if (!player->asleep) {
-		player->asleep = true;
-		player->driver->user->sleep(player->driver->user);
-	}
-	/* Always yield: WaitOnPlayers can fire while this player is already
-	 * marked asleep, and skipping the interrupt lets runLoop keep going
-	 * and enqueue more events than the 8-slot queue can hold. */
+	/* Tell the frontend even when lockstep already had us asleep: a
+	 * WaitOnPlayers that fires in that state used to skip both the
+	 * callback and the interrupt, so the core kept running and filled
+	 * the 8-event queue (Pokémon Quetzal, once buttons are pressed). */
+	player->asleep = true;
+	player->driver->user->sleep(player->driver->user);
 	player->driver->d.p->p->cpu->nextEvent = 0;
 	GBAInterrupt(player->driver->d.p->p);
 }
