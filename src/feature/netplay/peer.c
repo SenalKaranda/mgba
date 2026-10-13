@@ -102,6 +102,12 @@ static uint64_t _now(const struct mNetplayPeer* peer) {
 	return peer->clock->now(peer->clock);
 }
 
+/* Time from then to now, where then may have been stamped after now was
+ * read (a message handled during the same poll), so it must not wrap. */
+static uint64_t _since(uint64_t now, uint64_t then) {
+	return now > then ? now - then : 0;
+}
+
 static void _fail(struct mNetplayPeer* peer, const char* error) {
 	if (peer->state == mNETPLAY_PEER_FAILED || peer->state == mNETPLAY_PEER_ENDED) {
 		return;
@@ -276,7 +282,7 @@ static void _sendDatagram(struct mNetplayPeer* peer, struct Remote* remote) {
 	mNetplayWriteU8(&writer, peer->slot);
 	mNetplayWriteU32(&writer, (uint32_t) now);
 	mNetplayWriteU32(&writer, remote->haveEcho ? remote->echoTime : 0);
-	mNetplayWriteU32(&writer, remote->haveEcho ? (uint32_t) (now - remote->echoReceivedAt) : 0);
+	mNetplayWriteU32(&writer, remote->haveEcho ? (uint32_t) _since(now, remote->echoReceivedAt) : 0);
 	mNetplayWriteU32(&writer, peer->session ? mNetplaySessionFrame(peer->session) : 0);
 
 	unsigned slots[mNETPLAY_MAX_PLAYERS];
@@ -739,7 +745,7 @@ static void _hostPoll(struct mNetplayPeer* peer) {
 		if (!remote->link) {
 			continue;
 		}
-		bool lost = size < 0 || !remote->link->isOpen(remote->link) || now - remote->lastHeard > TIMEOUT_MS;
+		bool lost = size < 0 || !remote->link->isOpen(remote->link) || _since(now, remote->lastHeard) > TIMEOUT_MS;
 		if (lost) {
 			if (peer->state == mNETPLAY_PEER_RUNNING) {
 				char error[64];
@@ -914,7 +920,7 @@ static void _clientPoll(struct mNetplayPeer* peer) {
 		_fail(peer, "Lost the connection to the host");
 		return;
 	}
-	if (now - host->lastHeard > TIMEOUT_MS) {
+	if (_since(now, host->lastHeard) > TIMEOUT_MS) {
 		_fail(peer, "The host stopped responding");
 		return;
 	}
@@ -1026,7 +1032,7 @@ void mNetplayPeerPoll(struct mNetplayPeer* peer) {
 	unsigned i;
 	for (i = 0; i < mNETPLAY_MAX_PLAYERS; ++i) {
 		struct Remote* remote = _remoteAt(peer, i);
-		if (remote && (!peer->host || remote->welcomed) && !peer->hostFinished && now - remote->lastSent >= interval) {
+		if (remote && (!peer->host || remote->welcomed) && !peer->hostFinished && _since(now, remote->lastSent) >= interval) {
 			_sendDatagram(peer, remote);
 		}
 	}
@@ -1066,7 +1072,7 @@ enum mNetplayPeerStep mNetplayPeerRunFrame(struct mNetplayPeer* peer, uint16_t l
 		return mNETPLAY_PEER_STEP_STALLED;
 	}
 	if (peer->stalled) {
-		peer->stats.stalledMs += now - peer->stallStart;
+		peer->stats.stalledMs += _since(now, peer->stallStart);
 		peer->stalled = false;
 	}
 
@@ -1154,7 +1160,7 @@ int32_t mNetplayPeerFrameAdvantage(const struct mNetplayPeer* peer) {
 		}
 		/* Where the other site probably is now: its last report, plus the
 		 * frames it ran since it sent it. */
-		uint64_t elapsedUs = (now - remote->frameAt + remote->rttMs / 2) * 1000;
+		uint64_t elapsedUs = (_since(now, remote->frameAt) + remote->rttMs / 2) * 1000;
 		int64_t estimate = remote->frame + (int64_t) (elapsedUs / FRAME_US);
 		if (estimate < slowest) {
 			slowest = estimate;

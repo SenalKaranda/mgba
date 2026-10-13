@@ -45,6 +45,36 @@ static uint16_t _keysFor(uint32_t seed, unsigned slot, uint32_t frame) {
 	return x & mNETPLAY_KEY_MASK;
 }
 
+/* A real clock can tick between two reads in the same poll, while the
+ * virtual network's stands still; this one runs a millisecond ahead on every
+ * third read, never going backwards. */
+struct TickingClock {
+	struct mNetplayClock d;
+	struct mNetplayClock* source;
+	uint64_t last;
+	unsigned reads;
+};
+
+static uint64_t _tickingNow(struct mNetplayClock* base) {
+	struct TickingClock* clock = (struct TickingClock*) base;
+	uint64_t now = clock->source->now(clock->source);
+	if (clock->last < now) {
+		clock->last = now;
+	}
+	if (++clock->reads % 3 == 0 && clock->last == now) {
+		clock->last = now + 1;
+	}
+	return clock->last;
+}
+
+static struct mNetplayClock* _tickingClock(struct TickingClock* clock, struct mNetplaySimNetwork* net) {
+	clock->d.now = _tickingNow;
+	clock->source = mNetplaySimNetworkClock(net);
+	clock->last = 0;
+	clock->reads = 0;
+	return &clock->d;
+}
+
 struct Site {
 	struct mNetplayPeer* peer;
 	bool started;
@@ -53,6 +83,7 @@ struct Site {
 
 struct Game {
 	struct mNetplaySimNetwork* net;
+	struct TickingClock clock;
 	struct Site sites[mNETPLAY_MAX_PLAYERS];
 	struct mNetplayLink* clientLinks[mNETPLAY_MAX_PLAYERS];
 	unsigned players;
@@ -81,7 +112,7 @@ static void _setup(struct Game* game, unsigned players, uint32_t endFrame, const
 	game->players = players;
 	game->seed = seed;
 	game->endFrame = endFrame;
-	struct mNetplayClock* clock = mNetplaySimNetworkClock(game->net);
+	struct mNetplayClock* clock = _tickingClock(&game->clock, game->net);
 	struct mNetplayListener* listener = mNetplaySimListen(game->net);
 	struct mNetplayPeerConfig config = _config(players, endFrame);
 	game->sites[0].peer = mNetplayPeerCreateHost(&config, listener, clock);
@@ -273,7 +304,7 @@ static struct mNetplayPeer* _lonelyClient(struct Game* game, struct mNetplayList
 	memset(game, 0, sizeof(*game));
 	game->net = mNetplaySimNetworkCreate(5);
 	game->players = 2;
-	struct mNetplayClock* clock = mNetplaySimNetworkClock(game->net);
+	struct mNetplayClock* clock = _tickingClock(&game->clock, game->net);
 	*listener = mNetplaySimListen(game->net);
 	struct mNetplayPeerConfig hostConfig = _config(2, 120);
 	game->sites[0].peer = mNetplayPeerCreateHost(&hostConfig, *listener, clock);
