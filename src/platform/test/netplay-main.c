@@ -492,10 +492,7 @@ static int _runNetwork(const struct Options* opts, const void* rom, size_t romSi
 	if (mNetplayPeerSession(peer)) {
 		_printHashes("final", mNetplayPeerSession(peer));
 	}
-	if (state == mNETPLAY_PEER_FAILED) {
-		fprintf(stderr, "Netplay failed: %s\n", mNetplayPeerError(peer));
-		status = 1;
-	} else {
+	if (started) {
 		double seconds = (clock->now(clock) - startMs) / 1000.0;
 		uint32_t frames = mNetplayPeerFrame(peer);
 		fprintf(stderr, "Player %u: %u frames in %.1f s (%.2f fps), input delay %u, round trip %u ms, "
@@ -503,6 +500,10 @@ static int _runNetwork(const struct Options* opts, const void* rom, size_t romSi
 		        mNetplayPeerLocalSlot(peer) + 1, frames, seconds, seconds > 0 ? frames / seconds : 0,
 		        mNetplayPeerInputDelay(peer), stats.rttMs, stats.stalls, (unsigned) stats.stalledMs,
 		        stats.desyncs, stats.resyncs);
+	}
+	if (state == mNETPLAY_PEER_FAILED) {
+		fprintf(stderr, "Netplay failed: %s\n", mNetplayPeerError(peer));
+		status = 1;
 	}
 	fprintf(stderr, "emulator warnings: %u\n", _warnings);
 	mNetplayPeerDestroy(peer);
